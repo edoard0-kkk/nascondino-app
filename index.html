@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nascondino - Controllo Confini e Connessione</title>
+  
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; text-align: center; }
+    #map { height: 50vh; width: 100%; }
+    .box { padding: 10px; margin: 10px; border-radius: 8px; font-weight: bold; color: white; }
+    #my-status { background-color: gray; }
+    #connection-alert { background-color: #333; display: none; }
+    .safe { background-color: #2ecc71 !important; }
+    .danger { background-color: #e74c3c !important; }
+  </style>
+</head>
+<body>
+
+  <h2>Nascondino GPS</h2>
+  
+  <div id="map"></div>
+  
+  <div id="my-status" class="box">Stato del tuo confine: In attesa GPS...</div>
+  <div id="connection-alert" class="box danger"></div>
+
+  <button onclick="startGame()" style="padding: 12px 24px; font-size: 1rem;">Unisciti e Avvia</button>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/turf@6/turf.min.js"></script>
+
+  <script>
+    // Inserisci l'URL del tuo server (es. https://tuo-app-nascondino.onrender.com)
+    const socket = io('https://nascondino-app-3pa4.onrender.com'); 
+    let playerName = "";
+
+    // GESTIONE AVVISI SERVER
+    socket.on('player-joined', (msg) => {
+      alert(msg);
+    });
+
+    socket.on('player-disconnected', (msg) => {
+      const alertBox = document.getElementById('connection-alert');
+      alertBox.innerText = msg;
+      alertBox.style.display = 'block';
+      if (navigator.vibrate) navigator.vibrate([1000, 500, 1000]); // Vibrazione lunga di allarme
+    });
+
+    socket.on('opponent-status', (data) => {
+      if (!data.isInside) {
+        alert(`🚨 ${data.player} è uscito dai confini del parco!`);
+      }
+    });
+
+    function startGame() {
+      playerName = prompt("Inserisci il tuo nome:") || "Giocatore";
+      socket.emit('join-game', playerName);
+      startGPS();
+    }
+
+    // LOGICA GPS E CONFINI (Rimane locale sul telefono)
+    function startGPS() {
+      // Coordinate del parco (Esempio)
+      const parkCoordinates = [
+        [10.916, 43.934], [10.919, 43.934], 
+        [10.919, 43.932], [10.916, 43.932], [10.916, 43.934]
+      ];
+      const turfPolygon = turf.polygon([parkCoordinates]);
+
+      navigator.geolocation.watchPosition((position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        const userPoint = turf.point([lng, lat]);
+
+        const isInside = turf.booleanPointInPolygon(userPoint, turfPolygon);
+        
+        // Aggiorna la grafica locale
+        const statusDiv = document.getElementById("my-status");
+        if (isInside) {
+          statusDiv.innerText = "Sei DENTRO i confini";
+          statusDiv.className = "box safe";
+        } else {
+          statusDiv.innerText = "Sei USCITO dai confini!";
+          statusDiv.className = "box danger";
+        }
+
+        // Invia al server SOLO se sei dentro o fuori (Mai le coordinate!)
+        socket.emit('update-status', { isInside: isInside });
+
+      }, (err) => console.error(err), { enableHighAccuracy: true });
+    }
+  </script>
+</body>
+</html>
